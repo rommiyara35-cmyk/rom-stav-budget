@@ -70,8 +70,12 @@ const SwipeableTxCard: React.FC<SwipeableTxCardProps> = ({ tx, onEdit, onDelete 
 
   return (
     <div className="relative overflow-hidden rounded-[22px] fintech-well">
-      {/* Revealed Swipe Action Buttons */}
-      <div className="absolute inset-y-0 left-0 flex items-center gap-1.5 pl-2">
+      {/* Revealed Swipe Action Buttons (hidden until swiping so they never bleed through frosted card) */}
+      <div
+        className={`absolute inset-y-0 left-0 flex items-center gap-1.5 pl-2 transition-opacity duration-150 ${
+          offsetX > 2 ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        }`}
+      >
         <button
           type="button"
           onClick={() => {
@@ -121,7 +125,7 @@ const SwipeableTxCard: React.FC<SwipeableTxCardProps> = ({ tx, onEdit, onDelete 
               ? 'transform 0.22s cubic-bezier(0.22,1,0.36,1)'
               : 'none',
         }}
-        className="relative fintech-card rounded-[22px] p-3.5 flex items-center justify-between gap-3 cursor-pointer"
+        className="relative fintech-card dark:!bg-[#131823] rounded-[22px] p-3.5 flex items-center justify-between gap-3 cursor-pointer"
       >
         <div className="flex items-center gap-3 min-w-0">
           <div
