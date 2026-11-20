@@ -16,6 +16,8 @@ import { computeAnnualSummary, computeMonthlySummary } from './calculations';
 import { createId, formatShortDate, parseMonthKey } from './format';
 
 const VALID_CATEGORIES = new Set<string>(ALL_CATEGORIES.map((c) => c.name));
+const INCOME_CATEGORY_SET = new Set<string>(INCOME_CATEGORIES.map((c) => c.name));
+const EXPENSE_CATEGORY_SET = new Set<string>(EXPENSE_CATEGORIES.map((c) => c.name));
 
 function normalizePaymentMethod(raw: unknown): PaymentMethod {
   const str = String(raw ?? '').trim();
@@ -29,7 +31,10 @@ function normalizePaymentMethod(raw: unknown): PaymentMethod {
 
 function normalizeCategory(raw: unknown, type: TransactionType): CategoryName {
   const str = String(raw ?? '').trim();
-  if (VALID_CATEGORIES.has(str)) {
+  if (type === 'הכנסה' && INCOME_CATEGORY_SET.has(str)) {
+    return str as CategoryName;
+  }
+  if (type === 'הוצאה' && EXPENSE_CATEGORY_SET.has(str)) {
     return str as CategoryName;
   }
   return type === 'הכנסה' ? 'הכנסה נוספת / בונוס' : 'שונות';
@@ -95,7 +100,8 @@ export async function importBudgetFromExcel(
   defaultUser: UserName
 ): Promise<ExcelImportResult> {
   const buffer = await file.arrayBuffer();
-  const workbook = XLSX.read(buffer, { type: 'array', cellDates: true });
+  // Read raw Excel serial dates (cellDates: false) to avoid timezone/DST -1 day shifts
+  const workbook = XLSX.read(buffer, { type: 'array', cellDates: false });
 
   const targets: Record<string, number> = { ...currentData.targets };
   let updatedTargets = 0;
@@ -113,14 +119,18 @@ export async function importBudgetFromExcel(
       defval: null,
     });
 
-    // Try reading period from Row 4
-    const row4 = rows[3];
-    if (Array.isArray(row4)) {
-      const mName = String(row4[1] ?? '').trim();
-      const yr = toNum(row4[3]) || 2026;
-      const mIdx = HEBREW_MONTHS.indexOf(mName as (typeof HEBREW_MONTHS)[number]);
-      if (mIdx >= 0) {
-        summaryMonthKey = `${yr}-${String(mIdx + 1).padStart(2, '0')}`;
+    // Dynamically find period row (supports both original Excel row 4 and exported app row 3)
+    for (let i = 0; i < Math.min(8, rows.length); i++) {
+      const r = rows[i];
+      if (!Array.isArray(r)) continue;
+      if (String(r[0] ?? '').includes('חודש תצוגה')) {
+        const mName = String(r[1] ?? '').trim();
+        const yr = toNum(r[3]) || 2026;
+        const mIdx = HEBREW_MONTHS.indexOf(mName as (typeof HEBREW_MONTHS)[number]);
+        if (mIdx >= 0) {
+          summaryMonthKey = `${yr}-${String(mIdx + 1).padStart(2, '0')}`;
+        }
+        break;
       }
     }
 

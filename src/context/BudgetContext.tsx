@@ -4,12 +4,14 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import { createSeedBudgetData } from '../data/seedData';
 import { isFirebaseConfigured } from '../services/firebase';
 import {
   connectHousehold,
+  readCachedHouseholdData,
   sanitizeHouseholdId,
   saveHouseholdData,
   subscribeToHousehold,
@@ -24,7 +26,7 @@ import {
   UserName,
 } from '../types/budget';
 import { exportBudgetToExcel, importBudgetFromExcel } from '../utils/excel';
-import { createId } from '../utils/format';
+import { createId, getTodayISO } from '../utils/format';
 
 const SESSION_KEY = 'rom_stav_session_v1';
 const USER_KEY = 'rom_stav_active_user_v1';
@@ -77,6 +79,12 @@ interface BudgetContextValue {
   updateCategoryTarget: (category: string, target: number) => void;
   addTransaction: (tx: Omit<Transaction, 'id' | 'createdAt'>) => void;
   addTransactionsBatch: (txs: Array<Omit<Transaction, 'id' | 'createdAt'>>, toastText?: string) => void;
+  replaceWithInstallments: (
+    originalId: string,
+    existingGroupId: string | undefined,
+    txs: Array<Omit<Transaction, 'id' | 'createdAt'>>,
+    toastText?: string
+  ) => void;
   updateTransaction: (tx: Transaction) => void;
   deleteTransaction: (id: string) => void;
   deleteInstallmentGroup: (groupId: string) => void;
@@ -132,14 +140,29 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [activeUser, setActiveUserState] = useState<UserName>(() => loadStoredUser());
   const [darkMode, setDarkMode] = useState<boolean>(() => loadStoredTheme());
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
-  const [selectedMonth, setSelectedMonth] = useState<string>('2026-11');
-  const [selectedYear, setSelectedYear] = useState<number>(2026);
+  const [selectedMonth, setSelectedMonth] = useState<string>(() => getTodayISO().slice(0, 7));
+  const [selectedYear, setSelectedYear] = useState<number>(() => new Date().getFullYear());
 
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [categoryJumpFilter, setCategoryJumpFilter] = useState<string | null>(null);
 
-  const [data, setData] = useState<BudgetData>(() => createSeedBudgetData());
+  const [data, setData] = useState<BudgetData>(() => {
+    const stored = loadStoredSession();
+    if (stored) {
+      const cached = readCachedHouseholdData(stored.householdId);
+      if (cached) return cached;
+    }
+    return createSeedBudgetData();
+  });
+  const dataRef = useRef<BudgetData>(data);
+  const isCloudReadyRef = useRef<boolean>(false);
+  const writeSeqRef = useRef<number>(0);
+
+  useEffect(() => {
+    dataRef.current = data;
+  }, [data]);
+
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
   const dismissToast = useCallback((id: string) => {
@@ -200,12 +223,18 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   // Subscribe to Firestore or localStorage whenever session is active
   useEffect(() => {
-    if (!session) return;
+    if (!session) {
+      isCloudReadyRef.current = false;
+      return;
+    }
+    isCloudReadyRef.current = session.mode !== 'firebase';
     setSyncState(session.mode === 'firebase' ? 'syncing' : 'local');
 
     const unsub = subscribeToHousehold(
       session,
       (incoming) => {
+        isCloudReadyRef.current = true;
+        dataRef.current = incoming;
         setData(incoming);
         setSyncState(session.mode === 'firebase' ? 'synced' : 'local');
       },
@@ -220,21 +249,31 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const persistUpdate = useCallback(
     (updater: (prev: BudgetData) => BudgetData) => {
-      setData((prev) => {
-        const next = updater(prev);
-        if (session) {
-          if (session.mode === 'firebase') setSyncState('syncing');
-          saveHouseholdData(session, next)
-            .then(() => {
+      if (session?.mode === 'firebase' && !isCloudReadyRef.current) {
+        notify('ממתין לסנכרון ראשוני מהענן — נסו שוב בעוד שנייה', 'info');
+        return;
+      }
+
+      const next = updater(dataRef.current);
+      dataRef.current = next;
+      setData(next);
+
+      if (session) {
+        const seq = ++writeSeqRef.current;
+        if (session.mode === 'firebase') setSyncState('syncing');
+        saveHouseholdData(session, next)
+          .then(() => {
+            if (seq === writeSeqRef.current) {
               setSyncState(session.mode === 'firebase' ? 'synced' : 'local');
-            })
-            .catch(() => {
+            }
+          })
+          .catch(() => {
+            if (seq === writeSeqRef.current) {
               setSyncState('error');
               notify('שמירה לענן נכשלה', 'error');
-            });
-        }
-        return next;
-      });
+            }
+          });
+      }
     },
     [session, notify]
   );
@@ -348,6 +387,35 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         transactions: [...created, ...prev.transactions],
       }));
       notify(toastText ?? `נוספו ${created.length} תשלומים בהצלחה`);
+    },
+    [persistUpdate, notify]
+  );
+
+  const replaceWithInstallments = useCallback(
+    (
+      originalId: string,
+      existingGroupId: string | undefined,
+      txs: Array<Omit<Transaction, 'id' | 'createdAt'>>,
+      toastText?: string
+    ) => {
+      const now = Date.now();
+      const created: Transaction[] = txs.map((tx, idx) => ({
+        ...tx,
+        id: idx === 0 ? originalId : createId(`tx-${idx + 1}`),
+        createdAt: now + idx,
+      }));
+      persistUpdate((prev) => {
+        const filtered = prev.transactions.filter((t) => {
+          if (t.id === originalId) return false;
+          if (existingGroupId && t.installmentGroupId === existingGroupId) return false;
+          return true;
+        });
+        return {
+          ...prev,
+          transactions: [...created, ...filtered],
+        };
+      });
+      notify(toastText ?? `סדרת ${created.length} תשלומים נשמרה בהצלחה`);
     },
     [persistUpdate, notify]
   );
@@ -488,6 +556,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       updateCategoryTarget,
       addTransaction,
       addTransactionsBatch,
+      replaceWithInstallments,
       updateTransaction,
       deleteTransaction,
       deleteInstallmentGroup,
@@ -527,6 +596,7 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       updateCategoryTarget,
       addTransaction,
       addTransactionsBatch,
+      replaceWithInstallments,
       updateTransaction,
       deleteTransaction,
       deleteInstallmentGroup,

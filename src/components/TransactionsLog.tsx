@@ -30,6 +30,7 @@ const SwipeableTxCard: React.FC<SwipeableTxCardProps> = ({ tx, onEdit, onDelete 
   const startXRef = useRef<number | null>(null);
   const startYRef = useRef<number | null>(null);
   const isSwipingRef = useRef(false);
+  const didSwipeRef = useRef(false);
 
   const meta = CATEGORY_MAP[tx.category];
   const isIncome = tx.type === 'הכנסה';
@@ -38,6 +39,7 @@ const SwipeableTxCard: React.FC<SwipeableTxCardProps> = ({ tx, onEdit, onDelete 
     startXRef.current = e.touches[0].clientX;
     startYRef.current = e.touches[0].clientY;
     isSwipingRef.current = false;
+    didSwipeRef.current = false;
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
@@ -47,6 +49,7 @@ const SwipeableTxCard: React.FC<SwipeableTxCardProps> = ({ tx, onEdit, onDelete 
 
     if (!isSwipingRef.current && Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy)) {
       isSwipingRef.current = true;
+      didSwipeRef.current = true;
     }
 
     if (isSwipingRef.current) {
@@ -101,6 +104,10 @@ const SwipeableTxCard: React.FC<SwipeableTxCardProps> = ({ tx, onEdit, onDelete 
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
         onClick={() => {
+          if (didSwipeRef.current) {
+            didSwipeRef.current = false;
+            return;
+          }
           if (offsetX > 0) {
             setOffsetX(0);
           } else {

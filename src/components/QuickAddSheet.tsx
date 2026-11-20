@@ -21,6 +21,12 @@ import {
 
 const QUICK_INSTALLMENTS = [1, 2, 3, 6, 12] as const;
 
+type InstallmentAmountMode = 'split_total' | 'per_payment';
+
+function stripInstallmentSuffix(desc: string): string {
+  return desc.replace(/\s*\(\d+\/\d+\)\s*$/, '').trim();
+}
+
 export const QuickAddSheet: React.FC = () => {
   const {
     isQuickAddOpen,
@@ -29,6 +35,7 @@ export const QuickAddSheet: React.FC = () => {
     activeUser,
     addTransaction,
     addTransactionsBatch,
+    replaceWithInstallments,
     updateTransaction,
     deleteTransaction,
     deleteInstallmentGroup,
@@ -41,7 +48,11 @@ export const QuickAddSheet: React.FC = () => {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('אשראי');
   const [date, setDate] = useState(getTodayISO());
   const [loggedBy, setLoggedBy] = useState<UserName>(activeUser);
-  const [installments, setInstallments] = useState<number>(1);
+
+  // Installment controls (work in BOTH Add & Edit modes!)
+  const [installmentsDraft, setInstallmentsDraft] = useState<string>('1');
+  const [currentIndexDraft, setCurrentIndexDraft] = useState<string>('1');
+  const [amountMode, setAmountMode] = useState<InstallmentAmountMode>('split_total');
 
   const amountInputRef = useRef<HTMLInputElement>(null);
 
@@ -52,11 +63,14 @@ export const QuickAddSheet: React.FC = () => {
       setType(editingTransaction.type);
       setAmount(String(editingTransaction.amount));
       setCategory(editingTransaction.category);
-      setDescription(editingTransaction.description);
+      setDescription(stripInstallmentSuffix(editingTransaction.description));
       setPaymentMethod(editingTransaction.paymentMethod);
       setDate(editingTransaction.date);
       setLoggedBy(editingTransaction.loggedBy);
-      setInstallments(editingTransaction.installmentTotal ?? 1);
+      setInstallmentsDraft(String(editingTransaction.installmentTotal ?? 1));
+      setCurrentIndexDraft(String(editingTransaction.installmentIndex ?? 1));
+      // When editing an existing charge (e.g. Sony 244 ₪), default to treating its amount as the monthly payment
+      setAmountMode('per_payment');
     } else {
       setType('הוצאה');
       setAmount('');
@@ -65,7 +79,9 @@ export const QuickAddSheet: React.FC = () => {
       setPaymentMethod('אשראי');
       setDate(getTodayISO());
       setLoggedBy(activeUser);
-      setInstallments(1);
+      setInstallmentsDraft('1');
+      setCurrentIndexDraft('1');
+      setAmountMode('split_total');
       window.setTimeout(() => {
         amountInputRef.current?.focus();
       }, 120);
@@ -77,30 +93,155 @@ export const QuickAddSheet: React.FC = () => {
   const categories = type === 'הוצאה' ? EXPENSE_CATEGORIES : INCOME_CATEGORIES;
   const parsedAmount = parseFloat(amount.replace(/,/g, '.'));
   const validAmount = Number.isFinite(parsedAmount) && parsedAmount > 0 ? parsedAmount : 0;
-  const showInstallments = !editingTransaction && type === 'הוצאה';
+
+  const parsedTotal = parseInt(installmentsDraft, 10);
+  const totalInstallments =
+    Number.isFinite(parsedTotal) && parsedTotal >= 1 ? Math.min(36, parsedTotal) : 1;
+
+  const parsedCurrentIdx = parseInt(currentIndexDraft, 10);
+  const currentInstallmentIndex = editingTransaction
+    ? Math.max(
+        1,
+        Math.min(
+          totalInstallments,
+          Number.isFinite(parsedCurrentIdx) ? parsedCurrentIdx : 1
+        )
+      )
+    : 1;
+
+  const remainingPaymentsCount = Math.max(1, totalInstallments - currentInstallmentIndex + 1);
+  const showInstallments = type === 'הוצאה';
+
+  // Preview math
+  const perPaymentPreview =
+    totalInstallments > 1 && validAmount > 0
+      ? amountMode === 'per_payment'
+        ? validAmount
+        : validAmount / remainingPaymentsCount
+      : validAmount;
+
+  const lastMonthLabel =
+    totalInstallments > 1
+      ? formatMonthLabel(addMonthsToISO(date, remainingPaymentsCount - 1).slice(0, 7))
+      : '';
 
   const handleTypeSwitch = (nextType: TransactionType) => {
     setType(nextType);
-    if (nextType === 'הכנסה') setInstallments(1);
+    if (nextType === 'הכנסה') {
+      setInstallmentsDraft('1');
+      setCurrentIndexDraft('1');
+    }
     const valid = nextType === 'הוצאה' ? EXPENSE_CATEGORIES : INCOME_CATEGORIES;
     if (!valid.some((c) => c.name === category)) {
       setCategory(valid[0].name);
     }
   };
 
+  const buildInstallmentBatch = (cleanBaseDesc: string) => {
+    const groupId = editingTransaction?.installmentGroupId ?? createId('inst');
+    const countToCreate = remainingPaymentsCount;
+
+    if (amountMode === 'per_payment') {
+      const perAmount = Math.round(validAmount * 100) / 100;
+      return Array.from({ length: countToCreate }, (_, offset) => {
+        const instNum = currentInstallmentIndex + offset;
+        return {
+          type,
+          amount: perAmount,
+          category,
+          description: `${cleanBaseDesc} (${instNum}/${totalInstallments})`,
+          paymentMethod,
+          date: addMonthsToISO(date, offset),
+          loggedBy,
+          installmentGroupId: groupId,
+          installmentIndex: instNum,
+          installmentTotal: totalInstallments,
+        };
+      });
+    }
+
+    // Split total amount evenly across countToCreate payments
+    const totalCents = Math.round(validAmount * 100);
+    const baseCents = Math.floor(totalCents / countToCreate);
+    const remainderCents = totalCents - baseCents * countToCreate;
+
+    return Array.from({ length: countToCreate }, (_, offset) => {
+      const instNum = currentInstallmentIndex + offset;
+      const cents = offset === 0 ? baseCents + remainderCents : baseCents;
+      return {
+        type,
+        amount: Math.round(cents) / 100,
+        category,
+        description: `${cleanBaseDesc} (${instNum}/${totalInstallments})`,
+        paymentMethod,
+        date: addMonthsToISO(date, offset),
+        loggedBy,
+        installmentGroupId: groupId,
+        installmentIndex: instNum,
+        installmentTotal: totalInstallments,
+      };
+    });
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (validAmount <= 0) return;
 
-    const cleanDesc = description.trim() || category;
+    const cleanBaseDesc = stripInstallmentSuffix(description.trim()) || category;
 
     if (editingTransaction) {
+      const wasInstallment = Boolean(
+        editingTransaction.installmentTotal && editingTransaction.installmentTotal > 1
+      );
+      const installmentChanged =
+        totalInstallments !== (editingTransaction.installmentTotal ?? 1) ||
+        currentInstallmentIndex !== (editingTransaction.installmentIndex ?? 1);
+
+      // Converting a single expense to installments OR changing an installment plan
+      if (showInstallments && totalInstallments > 1 && (!wasInstallment || installmentChanged)) {
+        const batch = buildInstallmentBatch(cleanBaseDesc);
+        const futureCount = batch.length - 1;
+        replaceWithInstallments(
+          editingTransaction.id,
+          editingTransaction.installmentGroupId,
+          batch,
+          futureCount > 0
+            ? `הומר לתשלומים: תשלום ${currentInstallmentIndex}/${totalInstallments} + ${futureCount} תשלומים עתידיים (${formatILS(perPaymentPreview)}/חודש)`
+            : `עודכן כתשלום ${currentInstallmentIndex}/${totalInstallments}`
+        );
+        closeQuickAdd();
+        return;
+      }
+
+      // Downgrading an installment back to a regular single expense
+      if (wasInstallment && totalInstallments === 1) {
+        updateTransaction({
+          id: editingTransaction.id,
+          createdAt: editingTransaction.createdAt,
+          type,
+          amount: Math.round(validAmount * 100) / 100,
+          category,
+          description: cleanBaseDesc,
+          paymentMethod,
+          date,
+          loggedBy,
+        });
+        closeQuickAdd();
+        return;
+      }
+
+      // Standard single-entry edit (keeping existing installment badge if unchanged)
+      const finalDesc =
+        wasInstallment && totalInstallments > 1
+          ? `${cleanBaseDesc} (${currentInstallmentIndex}/${totalInstallments})`
+          : cleanBaseDesc;
+
       updateTransaction({
         ...editingTransaction,
         type,
         amount: Math.round(validAmount * 100) / 100,
         category,
-        description: cleanDesc,
+        description: finalDesc,
         paymentMethod,
         date,
         loggedBy,
@@ -109,42 +250,19 @@ export const QuickAddSheet: React.FC = () => {
       return;
     }
 
-    const count = showInstallments ? Math.max(1, Math.min(24, Math.round(installments))) : 1;
-
-    if (count > 1) {
-      const groupId = createId('inst');
-      const totalCents = Math.round(validAmount * 100);
-      const baseCents = Math.floor(totalCents / count);
-      const remainderCents = totalCents - baseCents * count;
-
-      const batch = Array.from({ length: count }, (_, idx) => {
-        const cents = idx === 0 ? baseCents + remainderCents : baseCents;
-        const itemAmount = Math.round(cents) / 100;
-        const itemDate = addMonthsToISO(date, idx);
-        return {
-          type,
-          amount: itemAmount,
-          category,
-          description: `${cleanDesc} (${idx + 1}/${count})`,
-          paymentMethod,
-          date: itemDate,
-          loggedBy,
-          installmentGroupId: groupId,
-          installmentIndex: idx + 1,
-          installmentTotal: count,
-        };
-      });
-
+    // Creating a new transaction
+    if (showInstallments && totalInstallments > 1) {
+      const batch = buildInstallmentBatch(cleanBaseDesc);
       addTransactionsBatch(
         batch,
-        `נפרסו ${count} תשלומים של ${formatILS(validAmount / count)} (סה"כ ${formatILS(validAmount)})`
+        `נפרסו ${totalInstallments} תשלומים של ${formatILS(perPaymentPreview)}`
       );
     } else {
       addTransaction({
         type,
         amount: Math.round(validAmount * 100) / 100,
         category,
-        description: cleanDesc,
+        description: cleanBaseDesc,
         paymentMethod,
         date,
         loggedBy,
@@ -226,8 +344,10 @@ export const QuickAddSheet: React.FC = () => {
               htmlFor="quick-amount"
               className="block text-[11px] font-bold tracking-wide text-slate-500 dark:text-slate-400 mb-1"
             >
-              {showInstallments && installments > 1
-                ? 'סכום כולל של העסקה (₪)'
+              {showInstallments && totalInstallments > 1
+                ? amountMode === 'per_payment'
+                  ? 'סכום לכל תשלום חודשי (₪)'
+                  : 'סכום כולל של העסקה (₪)'
                 : 'סכום בשקלים'}
             </label>
             <div className="flex items-center justify-center gap-2" dir="ltr">
@@ -291,7 +411,7 @@ export const QuickAddSheet: React.FC = () => {
               onChange={(e) => setDescription(e.target.value)}
               placeholder={
                 type === 'הוצאה'
-                  ? 'לדוגמה: וולט, סופר, דלק, קפה...'
+                  ? 'לדוגמה: וולט, סופר, דלק, סוני...'
                   : 'לדוגמה: משכורת, החזר ביט...'
               }
               className="w-full min-h-[48px] px-4 rounded-2xl fintech-well text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
@@ -325,29 +445,34 @@ export const QuickAddSheet: React.FC = () => {
             </div>
           </div>
 
-          {/* Credit Card Installments (פריסת תשלומים) */}
+          {/* Credit Card Installments (Both Add & Edit Modes!) */}
           {showInstallments && (
-            <div className="space-y-2">
+            <div className="space-y-2.5">
               <div className="flex items-center justify-between">
                 <label className="flex items-center gap-1.5 text-[11px] font-bold tracking-wide text-slate-500 dark:text-slate-400">
                   <Layers className="w-3.5 h-3.5 text-emerald-500" />
-                  פריסת תשלומים
+                  {editingTransaction ? 'הפוך / ערוך כפריסת תשלומים' : 'פריסת תשלומים'}
                 </label>
-                {installments > 1 && (
+                {totalInstallments > 1 && (
                   <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">
-                    {installments} חודשים קדימה
+                    {totalInstallments} תשלומים
                   </span>
                 )}
               </div>
 
               <div className="flex items-center gap-1.5">
                 {QUICK_INSTALLMENTS.map((n) => {
-                  const selected = installments === n;
+                  const selected = totalInstallments === n;
                   return (
                     <button
                       key={n}
                       type="button"
-                      onClick={() => setInstallments(n)}
+                      onClick={() => {
+                        setInstallmentsDraft(String(n));
+                        if (currentInstallmentIndex > n) {
+                          setCurrentIndexDraft(String(n));
+                        }
+                      }}
                       className={`pressable flex-1 min-h-[40px] rounded-xl text-xs font-extrabold tabular-nums ${
                         selected
                           ? 'bg-emerald-500 text-white dark:text-slate-950 shadow-xs'
@@ -359,32 +484,104 @@ export const QuickAddSheet: React.FC = () => {
                   );
                 })}
                 <input
-                  type="number"
+                  type="text"
                   inputMode="numeric"
-                  min={1}
-                  max={24}
                   aria-label="מספר תשלומים מותאם"
-                  value={installments}
+                  value={installmentsDraft}
                   onChange={(e) => {
-                    const v = parseInt(e.target.value, 10);
-                    setInstallments(Number.isFinite(v) ? Math.max(1, Math.min(24, v)) : 1);
+                    const digits = e.target.value.replace(/[^0-9]/g, '').slice(0, 2);
+                    setInstallmentsDraft(digits);
+                  }}
+                  onBlur={() => {
+                    const clamped = Math.max(1, Math.min(36, parseInt(installmentsDraft, 10) || 1));
+                    setInstallmentsDraft(String(clamped));
+                    if ((parseInt(currentIndexDraft, 10) || 1) > clamped) {
+                      setCurrentIndexDraft(String(clamped));
+                    }
                   }}
                   dir="ltr"
+                  placeholder="1"
                   className="w-14 min-h-[40px] px-2 rounded-xl fintech-well text-center text-xs font-extrabold tabular-nums focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
                 />
               </div>
 
-              {installments > 1 && validAmount > 0 && (
-                <div className="px-3.5 py-2.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-xs font-semibold text-emerald-700 dark:text-emerald-300 flex items-center justify-between gap-2 tabular-nums">
-                  <span>
-                    {installments} תשלומים של{' '}
-                    <strong className="font-black">
-                      {formatILS(validAmount / installments)}
-                    </strong>
-                  </span>
-                  <span className="text-[11px] opacity-80">
-                    עד {formatMonthLabel(addMonthsToISO(date, installments - 1).slice(0, 7))}
-                  </span>
+              {/* Extra controls when totalInstallments > 1 */}
+              {totalInstallments > 1 && (
+                <div className="space-y-2.5 pt-0.5">
+                  {/* Amount interpretation toggle */}
+                  <div className="grid grid-cols-2 gap-1 p-1 rounded-xl fintech-well text-[11px] font-bold">
+                    <button
+                      type="button"
+                      onClick={() => setAmountMode('per_payment')}
+                      className={`pressable min-h-[34px] px-2 rounded-lg ${
+                        amountMode === 'per_payment'
+                          ? 'bg-white dark:bg-white/14 text-slate-950 dark:text-white shadow-xs'
+                          : 'text-slate-500 dark:text-slate-400'
+                      }`}
+                    >
+                      סכום לכל תשלום
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAmountMode('split_total')}
+                      className={`pressable min-h-[34px] px-2 rounded-lg ${
+                        amountMode === 'split_total'
+                          ? 'bg-white dark:bg-white/14 text-slate-950 dark:text-white shadow-xs'
+                          : 'text-slate-500 dark:text-slate-400'
+                      }`}
+                    >
+                      חלק סכום כולל
+                    </button>
+                  </div>
+
+                  {/* Current installment number when editing (e.g. Sony is already 3/12) */}
+                  {editingTransaction && (
+                    <div className="flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-2xl fintech-well">
+                      <span className="text-xs font-bold text-slate-600 dark:text-slate-300">
+                        איזה תשלום זה מתוך {totalInstallments}?
+                      </span>
+                      <div className="flex items-center gap-1.5" dir="ltr">
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          aria-label="מספר תשלום נוכחי"
+                          value={currentIndexDraft}
+                          onChange={(e) => {
+                            const digits = e.target.value.replace(/[^0-9]/g, '').slice(0, 2);
+                            setCurrentIndexDraft(digits);
+                          }}
+                          onBlur={() => {
+                            const clamped = Math.max(
+                              1,
+                              Math.min(totalInstallments, parseInt(currentIndexDraft, 10) || 1)
+                            );
+                            setCurrentIndexDraft(String(clamped));
+                          }}
+                          className="w-12 min-h-[34px] px-2 rounded-lg bg-white dark:bg-white/10 text-center text-xs font-black tabular-nums focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                        />
+                        <span className="text-xs font-bold text-slate-400 tabular-nums">
+                          / {totalInstallments}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Live Preview Banner */}
+                  {validAmount > 0 && (
+                    <div className="px-3.5 py-2.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-xs font-semibold text-emerald-700 dark:text-emerald-300 flex flex-wrap items-center justify-between gap-2 tabular-nums">
+                      <span>
+                        {editingTransaction && remainingPaymentsCount > 1
+                          ? `תשלום ${currentInstallmentIndex}/${totalInstallments} + ${remainingPaymentsCount - 1} עתידיים של `
+                          : `${remainingPaymentsCount} תשלומים של `}
+                        <strong className="font-black">
+                          {formatILS(perPaymentPreview)}
+                        </strong>
+                      </span>
+                      <span className="text-[11px] opacity-85">
+                        עד {lastMonthLabel}
+                      </span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -466,9 +663,13 @@ export const QuickAddSheet: React.FC = () => {
               }`}
             >
               {editingTransaction
-                ? 'שמור שינויים'
-                : showInstallments && installments > 1
-                  ? `פרוס ל-${installments} תשלומים`
+                ? showInstallments && totalInstallments > 1 &&
+                  (totalInstallments !== (editingTransaction.installmentTotal ?? 1) ||
+                    currentInstallmentIndex !== (editingTransaction.installmentIndex ?? 1))
+                  ? `שמור כ-${totalInstallments} תשלומים`
+                  : 'שמור שינויים'
+                : showInstallments && totalInstallments > 1
+                  ? `פרוס ל-${totalInstallments} תשלומים`
                   : type === 'הכנסה'
                     ? 'הוסף הכנסה'
                     : 'הוסף הוצאה'}

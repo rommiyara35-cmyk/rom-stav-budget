@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   CalendarClock,
   Check,
@@ -207,6 +207,84 @@ const FixedExpenseModal: React.FC<FixedModalProps> = ({
   );
 };
 
+interface FixedNumberInputProps {
+  value: number;
+  onCommit: (next: number) => void;
+  className: string;
+  ariaLabel: string;
+}
+
+const FixedNumberInput: React.FC<FixedNumberInputProps> = ({
+  value,
+  onCommit,
+  className,
+  ariaLabel,
+}) => {
+  const [draft, setDraft] = useState(value ? String(value) : '');
+  const timerRef = useRef<number | null>(null);
+  const focusedRef = useRef(false);
+
+  useEffect(() => {
+    if (!focusedRef.current) {
+      setDraft(value ? String(value) : '');
+    }
+  }, [value]);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+    };
+  }, []);
+
+  const parseDraft = (raw: string) => {
+    const cleaned = raw.replace(/[^0-9.,]/g, '').replace(/,/g, '.');
+    return cleaned === '' ? 0 : Math.max(0, Math.round(parseFloat(cleaned) || 0));
+  };
+
+  const commitNow = (raw: string) => {
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    const next = parseDraft(raw);
+    if (next !== value) {
+      onCommit(next);
+    }
+  };
+
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      dir="ltr"
+      aria-label={ariaLabel}
+      value={draft}
+      placeholder="0"
+      onFocus={() => {
+        focusedRef.current = true;
+      }}
+      onChange={(e) => {
+        const cleaned = e.target.value.replace(/[^0-9.,]/g, '');
+        setDraft(cleaned);
+        if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+        timerRef.current = window.setTimeout(() => {
+          commitNow(cleaned);
+        }, 450);
+      }}
+      onBlur={() => {
+        focusedRef.current = false;
+        commitNow(draft);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.currentTarget.blur();
+        }
+      }}
+      className={className}
+    />
+  );
+};
+
 interface FixedSectionProps {
   title: string;
   owner: FixedOwner;
@@ -236,14 +314,12 @@ const FixedSection: React.FC<FixedSectionProps> = ({
     return { planned, paid, diff: planned - paid };
   }, [items]);
 
-  const handleNumberChange = (
+  const commitField = (
     item: FixedExpenseItem,
     field: 'planned' | 'paid',
-    raw: string
+    next: number
   ) => {
-    const cleaned = raw.replace(/[^0-9.]/g, '');
-    const num = cleaned === '' ? 0 : Math.round(parseFloat(cleaned) || 0);
-    onQuickUpdate({ ...item, [field]: num });
+    onQuickUpdate({ ...item, [field]: next });
   };
 
   return (
@@ -366,13 +442,10 @@ const FixedSection: React.FC<FixedSectionProps> = ({
                       <label className="block text-[10px] font-semibold text-slate-400 mb-1">
                         מתוכנן (₪)
                       </label>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        dir="ltr"
-                        value={item.planned || ''}
-                        placeholder="0"
-                        onChange={(e) => handleNumberChange(item, 'planned', e.target.value)}
+                      <FixedNumberInput
+                        ariaLabel={`מתוכנן עבור ${item.name}`}
+                        value={item.planned}
+                        onCommit={(val) => commitField(item, 'planned', val)}
                         className="w-full min-h-[40px] px-2.5 rounded-xl fintech-well text-sm font-bold text-center tabular-nums focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
                       />
                     </div>
@@ -380,13 +453,10 @@ const FixedSection: React.FC<FixedSectionProps> = ({
                       <label className="block text-[10px] font-semibold text-slate-400 mb-1">
                         שולם (₪)
                       </label>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        dir="ltr"
-                        value={item.paid || ''}
-                        placeholder="0"
-                        onChange={(e) => handleNumberChange(item, 'paid', e.target.value)}
+                      <FixedNumberInput
+                        ariaLabel={`שולם עבור ${item.name}`}
+                        value={item.paid}
+                        onCommit={(val) => commitField(item, 'paid', val)}
                         className="w-full min-h-[40px] px-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-sm font-bold text-center tabular-nums text-emerald-700 dark:text-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
                       />
                     </div>
@@ -437,24 +507,18 @@ const FixedSection: React.FC<FixedSectionProps> = ({
                         {item.name}
                       </td>
                       <td className="py-2 px-3 text-center">
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          dir="ltr"
-                          value={item.planned || ''}
-                          placeholder="0"
-                          onChange={(e) => handleNumberChange(item, 'planned', e.target.value)}
+                        <FixedNumberInput
+                          ariaLabel={`מתוכנן עבור ${item.name}`}
+                          value={item.planned}
+                          onCommit={(val) => commitField(item, 'planned', val)}
                           className="w-24 py-1.5 px-2 rounded-xl fintech-well text-center font-bold tabular-nums focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
                         />
                       </td>
                       <td className="py-2 px-3 text-center">
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          dir="ltr"
-                          value={item.paid || ''}
-                          placeholder="0"
-                          onChange={(e) => handleNumberChange(item, 'paid', e.target.value)}
+                        <FixedNumberInput
+                          ariaLabel={`שולם עבור ${item.name}`}
+                          value={item.paid}
+                          onCommit={(val) => commitField(item, 'paid', val)}
                           className="w-24 py-1.5 px-2 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-center font-bold tabular-nums text-emerald-700 dark:text-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
                         />
                       </td>

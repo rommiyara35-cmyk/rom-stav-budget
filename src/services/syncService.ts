@@ -24,7 +24,7 @@ function getLocalPinKey(householdId: string): string {
   return `${LOCAL_PIN_PREFIX}${sanitizeHouseholdId(householdId)}`;
 }
 
-function readLocalData(householdId: string): BudgetData {
+export function readCachedHouseholdData(householdId: string): BudgetData | null {
   try {
     const raw = localStorage.getItem(getLocalStorageKey(householdId));
     if (raw) {
@@ -33,9 +33,15 @@ function readLocalData(householdId: string): BudgetData {
         return parsed;
       }
     }
-  } catch (err) {
-    console.warn('Failed reading local budget data:', err);
+  } catch {
+    // ignore invalid cache
   }
+  return null;
+}
+
+function readLocalData(householdId: string): BudgetData {
+  const cached = readCachedHouseholdData(householdId);
+  if (cached) return cached;
   const seed = createSeedBudgetData();
   writeLocalData(householdId, seed);
   return seed;
@@ -128,7 +134,7 @@ export function subscribeToHousehold(
         if (snapshot.exists()) {
           const raw = snapshot.data() as Partial<BudgetData>;
           const fallback = createSeedBudgetData();
-          onData({
+          const hydrated: BudgetData = {
             targets: raw.targets ?? fallback.targets,
             transactions: Array.isArray(raw.transactions)
               ? raw.transactions
@@ -137,7 +143,10 @@ export function subscribeToHousehold(
               ? raw.fixedExpenses
               : fallback.fixedExpenses,
             updatedAt: raw.updatedAt ?? Date.now(),
-          });
+          };
+          // Cache latest cloud state locally for fast next paint
+          writeLocalData(session.householdId, hydrated);
+          onData(hydrated);
         }
       },
       (err) => {

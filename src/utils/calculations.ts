@@ -158,18 +158,27 @@ export function computeAnnualSummary(data: BudgetData, year: number): AnnualSumm
     const monthKey = getMonthKey(year, monthIndex0);
     const monthTxs = data.transactions.filter((t) => t.date.startsWith(monthKey));
     const hasActivity = monthTxs.length > 0;
-    const byCategory: Record<string, number> = {};
+    const byTypedCategory: Record<string, number> = {};
 
     for (const tx of monthTxs) {
-      byCategory[tx.category] = (byCategory[tx.category] || 0) + (Number(tx.amount) || 0);
+      const key = `${tx.type}::${tx.category}`;
+      byTypedCategory[key] = (byTypedCategory[key] || 0) + (Number(tx.amount) || 0);
     }
 
     // Apply recurring fixed expenses to active months in the annual overview
     if (hasActivity) {
-      byCategory['הוצאות קבועות רום'] =
-        (byCategory['הוצאות קבועות רום'] || 0) + fixed.romPaid;
-      byCategory['הוצאות קבועות סתיו'] =
-        (byCategory['הוצאות קבועות סתיו'] || 0) + fixed.stavPaid;
+      byTypedCategory['הוצאה::הוצאות קבועות רום'] =
+        (byTypedCategory['הוצאה::הוצאות קבועות רום'] || 0) + fixed.romPaid;
+      byTypedCategory['הוצאה::הוצאות קבועות סתיו'] =
+        (byTypedCategory['הוצאה::הוצאות קבועות סתיו'] || 0) + fixed.stavPaid;
+    }
+
+    const byCategory: Record<string, number> = {};
+    for (const c of INCOME_CATEGORIES) {
+      byCategory[c.name] = byTypedCategory[`הכנסה::${c.name}`] || 0;
+    }
+    for (const c of EXPENSE_CATEGORIES) {
+      byCategory[c.name] = byTypedCategory[`הוצאה::${c.name}`] || 0;
     }
 
     const income = INCOME_CATEGORIES.reduce(

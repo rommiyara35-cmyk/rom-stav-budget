@@ -1,4 +1,4 @@
-const CACHE_NAME = 'rom-stav-budget-v3';
+const CACHE_NAME = 'rom-stav-budget-v4';
 const APP_SHELL = ['/', '/index.html', '/manifest.webmanifest', '/icon.svg'];
 
 self.addEventListener('install', (event) => {
@@ -31,6 +31,14 @@ self.addEventListener('fetch', (event) => {
         }
         return response;
       })
-      .catch(() => caches.match(event.request).then((cached) => cached || caches.match('/index.html')))
+      .catch(async () => {
+        const cached = await caches.match(event.request);
+        if (cached) return cached;
+        if (event.request.mode === 'navigate') {
+          const shell = await caches.match('/index.html');
+          if (shell) return shell;
+        }
+        return new Response('Offline', { status: 503, statusText: 'Offline' });
+      })
   );
 });
