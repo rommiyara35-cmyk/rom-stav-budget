@@ -5,18 +5,21 @@ import {
   ChevronDown,
   ChevronUp,
   Edit3,
+  Layers,
   Plus,
   Trash2,
   X,
 } from 'lucide-react';
 import { useBudget } from '../context/BudgetContext';
 import {
+  CATEGORY_MAP,
   FixedExpenseItem,
   FixedOwner,
   PAYMENT_METHODS,
   PaymentMethod,
+  Transaction,
 } from '../types/budget';
-import { formatILS } from '../utils/format';
+import { addMonthsToISO, formatILS, formatMonthLabel, formatShortDate } from '../utils/format';
 
 interface FixedModalProps {
   owner: FixedOwner;
@@ -290,8 +293,11 @@ interface FixedSectionProps {
   owner: FixedOwner;
   accentClass: string;
   items: FixedExpenseItem[];
+  linkedTransactions: Transaction[];
+  monthLabel: string;
   onQuickUpdate: (item: FixedExpenseItem) => void;
   onEditModal: (item: FixedExpenseItem) => void;
+  onEditTransaction: (tx: Transaction) => void;
   onAddModal: (owner: FixedOwner) => void;
   onDelete: (id: string) => void;
 }
@@ -301,18 +307,24 @@ const FixedSection: React.FC<FixedSectionProps> = ({
   owner,
   accentClass,
   items,
+  linkedTransactions,
+  monthLabel,
   onQuickUpdate,
   onEditModal,
+  onEditTransaction,
   onAddModal,
   onDelete,
 }) => {
   const [expanded, setExpanded] = useState(true);
 
   const totals = useMemo(() => {
-    const planned = items.reduce((s, i) => s + (Number(i.planned) || 0), 0);
-    const paid = items.reduce((s, i) => s + (Number(i.paid) || 0), 0);
-    return { planned, paid, diff: planned - paid };
-  }, [items]);
+    const manualPlanned = items.reduce((s, i) => s + (Number(i.planned) || 0), 0);
+    const manualPaid = items.reduce((s, i) => s + (Number(i.paid) || 0), 0);
+    const linkedPaid = linkedTransactions.reduce((s, t) => s + (Number(t.amount) || 0), 0);
+    const planned = manualPlanned + linkedPaid;
+    const paid = manualPaid + linkedPaid;
+    return { planned, paid, linkedPaid, diff: planned - paid };
+  }, [items, linkedTransactions]);
 
   const commitField = (
     item: FixedExpenseItem,
@@ -342,7 +354,10 @@ const FixedSection: React.FC<FixedSectionProps> = ({
           <div>
             <h3 className="text-base sm:text-lg font-extrabold tracking-tight">{title}</h3>
             <p className="text-xs text-slate-400 dark:text-slate-500">
-              {items.length} סעיפים • מסתנכרן אוטומטית לסיכום החודשי
+              {items.length} סעיפים
+              {linkedTransactions.length > 0
+                ? ` + ${linkedTransactions.length} מיומן התנועות (${monthLabel})`
+                : ' • מסתנכרן אוטומטית לסיכום החודשי'}
             </p>
           </div>
         </div>
@@ -579,6 +594,59 @@ const FixedSection: React.FC<FixedSectionProps> = ({
             </table>
           </div>
 
+          {/* Linked Transactions & Installments from Log for this owner's fixed category */}
+          {linkedTransactions.length > 0 && (
+            <div className="border-t border-hairline bg-emerald-500/[0.04] dark:bg-emerald-500/[0.05]">
+              <div className="px-5 py-2.5 flex items-center justify-between border-b border-hairline">
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-extrabold text-emerald-700 dark:text-emerald-300">
+                  <Layers className="w-3.5 h-3.5" />
+                  חיובים ותשלומים מיומן התנועות ({monthLabel})
+                </span>
+                <span className="text-xs font-black tabular-nums text-emerald-700 dark:text-emerald-300">
+                  {formatILS(totals.linkedPaid)}
+                </span>
+              </div>
+
+              <div className="divide-y divide-hairline">
+                {linkedTransactions.map((tx) => (
+                  <button
+                    key={tx.id}
+                    type="button"
+                    onClick={() => onEditTransaction(tx)}
+                    className="pressable w-full px-5 py-3 flex items-center justify-between gap-3 text-right hover:bg-black/[0.02] dark:hover:bg-white/[0.03] transition-colors"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-sm text-slate-900 dark:text-white truncate">
+                          {tx.description}
+                        </span>
+                        {tx.installmentTotal && tx.installmentTotal > 1 && (
+                          <span className="shrink-0 px-2 py-0.5 rounded-lg bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 text-[10px] font-extrabold tabular-nums">
+                            תשלום {tx.installmentIndex}/{tx.installmentTotal}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-0.5 tabular-nums">
+                        <span>{formatShortDate(tx.date)}</span>
+                        <span>•</span>
+                        <span>{tx.paymentMethod}</span>
+                        <span>•</span>
+                        <span>לחצו לעריכה</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-sm font-black tabular-nums text-slate-950 dark:text-white">
+                        {formatILS(tx.amount)}
+                      </span>
+                      <Edit3 className="w-3.5 h-3.5 text-slate-400" />
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Add New Fixed Item Footer */}
           <div className="px-5 py-3 bg-black/[0.015] dark:bg-white/[0.02] border-t border-hairline flex items-center justify-between">
             <button
@@ -604,13 +672,22 @@ const FixedSection: React.FC<FixedSectionProps> = ({
 };
 
 export const FixedExpenses: React.FC = () => {
-  const { data, addFixedExpense, updateFixedExpense, deleteFixedExpense } = useBudget();
+  const {
+    data,
+    selectedMonth,
+    openQuickAdd,
+    addFixedExpense,
+    updateFixedExpense,
+    deleteFixedExpense,
+  } = useBudget();
 
   const [modalState, setModalState] = useState<{
     open: boolean;
     owner: FixedOwner;
     editing: FixedExpenseItem | null;
   }>({ open: false, owner: 'rom', editing: null });
+
+  const monthLabel = formatMonthLabel(selectedMonth);
 
   const romItems = useMemo(
     () => data.fixedExpenses.filter((f) => f.owner === 'rom'),
@@ -621,13 +698,69 @@ export const FixedExpenses: React.FC = () => {
     [data.fixedExpenses]
   );
 
+  // Pull transactions logged in the selected month under Rom/Stav Fixed Expenses
+  const romLinkedTxs = useMemo(
+    () =>
+      data.transactions
+        .filter(
+          (t) =>
+            t.type === 'הוצאה' &&
+            t.category === 'הוצאות קבועות רום' &&
+            t.date.startsWith(selectedMonth)
+        )
+        .sort((a, b) => b.date.localeCompare(a.date)),
+    [data.transactions, selectedMonth]
+  );
+
+  const stavLinkedTxs = useMemo(
+    () =>
+      data.transactions
+        .filter(
+          (t) =>
+            t.type === 'הוצאה' &&
+            t.category === 'הוצאות קבועות סתיו' &&
+            t.date.startsWith(selectedMonth)
+        )
+        .sort((a, b) => b.date.localeCompare(a.date)),
+    [data.transactions, selectedMonth]
+  );
+
+  // All active installment plans for the selected month (across every category)
+  const activeInstallments = useMemo(
+    () =>
+      data.transactions
+        .filter(
+          (t) =>
+            t.type === 'הוצאה' &&
+            t.date.startsWith(selectedMonth) &&
+            t.installmentTotal &&
+            t.installmentTotal > 1
+        )
+        .sort((a, b) => b.amount - a.amount),
+    [data.transactions, selectedMonth]
+  );
+
+  const activeInstallmentsMonthlySum = useMemo(
+    () => activeInstallments.reduce((s, t) => s + (Number(t.amount) || 0), 0),
+    [activeInstallments]
+  );
+
+  const linkedTotal = useMemo(
+    () =>
+      romLinkedTxs.reduce((s, t) => s + t.amount, 0) +
+      stavLinkedTxs.reduce((s, t) => s + t.amount, 0),
+    [romLinkedTxs, stavLinkedTxs]
+  );
+
   const combinedPaid = useMemo(
-    () => data.fixedExpenses.reduce((s, f) => s + (Number(f.paid) || 0), 0),
-    [data.fixedExpenses]
+    () =>
+      data.fixedExpenses.reduce((s, f) => s + (Number(f.paid) || 0), 0) + linkedTotal,
+    [data.fixedExpenses, linkedTotal]
   );
   const combinedPlanned = useMemo(
-    () => data.fixedExpenses.reduce((s, f) => s + (Number(f.planned) || 0), 0),
-    [data.fixedExpenses]
+    () =>
+      data.fixedExpenses.reduce((s, f) => s + (Number(f.planned) || 0), 0) + linkedTotal,
+    [data.fixedExpenses, linkedTotal]
   );
 
   const handleSave = (item: Omit<FixedExpenseItem, 'id'>, existingId?: string) => {
@@ -643,10 +776,10 @@ export const FixedExpenses: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h2 className="text-2xl sm:text-[26px] font-black tracking-tight">
-            הוצאות קבועות
+            הוצאות קבועות ותשלומים
           </h2>
           <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
-            כל שינוי מסתנכרן אוטומטית לשורות ההוצאות הקבועות בסיכום החודשי
+            כולל סעיפים קבועים וחיובים/תשלומים מיומן התנועות לחודש {monthLabel}
           </p>
         </div>
 
@@ -674,8 +807,11 @@ export const FixedExpenses: React.FC = () => {
         owner="rom"
         accentClass="bg-gradient-to-b from-sky-400 to-teal-500"
         items={romItems}
+        linkedTransactions={romLinkedTxs}
+        monthLabel={monthLabel}
         onQuickUpdate={updateFixedExpense}
         onEditModal={(item) => setModalState({ open: true, owner: 'rom', editing: item })}
+        onEditTransaction={(tx) => openQuickAdd(tx)}
         onAddModal={(owner) => setModalState({ open: true, owner, editing: null })}
         onDelete={deleteFixedExpense}
       />
@@ -685,11 +821,98 @@ export const FixedExpenses: React.FC = () => {
         owner="stav"
         accentClass="bg-gradient-to-b from-amber-400 to-rose-400"
         items={stavItems}
+        linkedTransactions={stavLinkedTxs}
+        monthLabel={monthLabel}
         onQuickUpdate={updateFixedExpense}
         onEditModal={(item) => setModalState({ open: true, owner: 'stav', editing: item })}
+        onEditTransaction={(tx) => openQuickAdd(tx)}
         onAddModal={(owner) => setModalState({ open: true, owner, editing: null })}
         onDelete={deleteFixedExpense}
       />
+
+      {/* Active Installment Plans Overview (all categories) */}
+      <section className="fintech-card rounded-[26px] overflow-hidden">
+        <div className="px-5 py-4 border-b border-hairline flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <span className="w-9 h-9 rounded-2xl bg-emerald-500/12 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0">
+              <Layers className="w-4 h-4" />
+            </span>
+            <div>
+              <h3 className="text-base font-extrabold tracking-tight">
+                פריסות תשלומים פעילות ({monthLabel})
+              </h3>
+              <p className="text-xs text-slate-400 dark:text-slate-500">
+                ריכוז כל העסקאות בפריסת תשלומים מכל הקטגוריות (ללא ספירה כפולה)
+              </p>
+            </div>
+          </div>
+
+          {activeInstallments.length > 0 && (
+            <div className="text-left tabular-nums shrink-0">
+              <div className="text-[10px] font-semibold text-slate-400">חיוב החודש</div>
+              <div className="text-sm font-black text-emerald-600 dark:text-emerald-400">
+                {formatILS(activeInstallmentsMonthlySum)}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {activeInstallments.length === 0 ? (
+          <div className="px-5 py-7 text-center text-xs text-slate-400 dark:text-slate-500">
+            אין כרגע פריסות תשלומים פעילות לחודש {monthLabel}. אפשר להפוך כל הוצאה לתשלומים בעריכה או בהוספה חדשה.
+          </div>
+        ) : (
+          <div className="divide-y divide-hairline">
+            {activeInstallments.map((tx) => {
+              const total = tx.installmentTotal ?? 1;
+              const idx = tx.installmentIndex ?? 1;
+              const remainingAfter = Math.max(0, total - idx);
+              const remainingTotal = remainingAfter * tx.amount;
+              const endMonthLabel = formatMonthLabel(
+                addMonthsToISO(tx.date, remainingAfter).slice(0, 7)
+              );
+              const meta = CATEGORY_MAP[tx.category];
+
+              return (
+                <button
+                  key={tx.id}
+                  type="button"
+                  onClick={() => openQuickAdd(tx)}
+                  className="pressable w-full px-5 py-3.5 flex items-center justify-between gap-3 text-right hover:bg-black/[0.015] dark:hover:bg-white/[0.025] transition-colors"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span
+                      className="w-10 h-10 rounded-2xl flex items-center justify-center text-lg shrink-0"
+                      style={{ backgroundColor: `${meta?.color ?? '#10B981'}1A` }}
+                    >
+                      {meta?.emoji ?? '💳'}
+                    </span>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-sm truncate">{tx.description}</span>
+                        <span className="shrink-0 px-2 py-0.5 rounded-lg bg-emerald-500/12 text-emerald-700 dark:text-emerald-300 text-[10px] font-extrabold tabular-nums">
+                          {idx}/{total}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5 tabular-nums">
+                        {tx.category} • {tx.loggedBy} •{' '}
+                        {remainingAfter > 0
+                          ? `נותרו ${remainingAfter} תשלומים (${formatILS(remainingTotal)}) עד ${endMonthLabel}`
+                          : 'תשלום אחרון!'}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="text-left shrink-0 tabular-nums">
+                    <div className="text-sm font-black">{formatILS(tx.amount)}</div>
+                    <div className="text-[10px] text-slate-400">לחודש</div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </section>
 
       {modalState.open && (
         <FixedExpenseModal

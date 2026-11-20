@@ -582,6 +582,21 @@ export const QuickAddSheet: React.FC = () => {
                       </span>
                     </div>
                   )}
+
+                  {/* Quick 1-tap assign to Fixed Expenses if currently in another category */}
+                  {category !== 'הוצאות קבועות רום' && category !== 'הוצאות קבועות סתיו' && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setCategory(
+                          loggedBy === 'סתיו' ? 'הוצאות קבועות סתיו' : 'הוצאות קבועות רום'
+                        )
+                      }
+                      className="pressable w-full min-h-[38px] px-3 rounded-xl fintech-well text-[11px] font-bold text-slate-600 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-emerald-400"
+                    >
+                      🏠 שייך גם לקטגוריית הוצאות קבועות ({loggedBy})
+                    </button>
+                  )}
                 </div>
               )}
             </div>
