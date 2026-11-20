@@ -81,30 +81,22 @@
   border: 1px solid rgba(255, 255, 255, 0.075);
 }
 
-/* Frosted glass sticky header / bottom navigation / sidebar */
+/* Frosted glass sticky sidebar / bottom navigation (never set position here so Tailwind fixed/sticky wins) */
 .fintech-glass {
-  position: relative;
-  isolation: isolate;
-  background: rgba(248, 249, 250, 0.94);
-  border-color: rgba(15, 23, 42, 0.06);
-}
-
-.fintech-glass::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  backdrop-filter: blur(18px) saturate(160%);
-  -webkit-backdrop-filter: blur(18px) saturate(160%);
-  pointer-events: none;
+  background: rgba(248, 249, 250, 0.95);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  border-color: rgba(15, 23, 42, 0.07);
+  transform: translateZ(0);
+  -webkit-transform: translateZ(0);
 }
 
 .dark .fintech-glass {
-  background: rgba(11, 14, 20, 0.92);
-  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(11, 14, 20, 0.95);
+  border-color: rgba(255, 255, 255, 0.09);
 }
 
-/* Dedicated razor-sharp iOS header (avoids WebKit sticky backdrop-filter text smear & iOS status-bar edge fade) */
+/* Dedicated razor-sharp iOS top header (avoids WebKit sticky backdrop-filter text smear) */
 .fintech-header-ios {
   background-color: #F8F9FA;
   border-color: rgba(15, 23, 42, 0.06);

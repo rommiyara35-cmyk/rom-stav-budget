@@ -1,4 +1,4 @@
-const CACHE_NAME = 'rom-stav-budget-v2';
+const CACHE_NAME = 'rom-stav-budget-v3';
 const APP_SHELL = ['/', '/index.html', '/manifest.webmanifest', '/icon.svg'];
 
 self.addEventListener('install', (event) => {

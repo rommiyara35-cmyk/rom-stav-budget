@@ -377,7 +377,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         </button>
 
         {/* Sticky iOS Frosted Bottom Tab Bar */}
-        <nav className="lg:hidden fixed bottom-0 inset-x-0 z-30 fintech-glass border-t safe-bottom">
+        <nav className="lg:hidden fixed bottom-0 inset-x-0 z-40 fintech-glass border-t safe-bottom">
           <div className="grid grid-cols-4 px-2 pt-1.5 pb-1">
             {NAV_ITEMS.map((item) => {
               const Icon = item.icon;
