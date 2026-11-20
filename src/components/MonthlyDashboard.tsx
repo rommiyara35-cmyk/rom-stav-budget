@@ -190,6 +190,7 @@ export const MonthlyDashboard: React.FC = () => {
                 aria-label="בחר חודש"
                 value={monthIndex0}
                 onChange={(e) => setSelectedMonth(getMonthKey(year, Number(e.target.value)))}
+                style={{ WebkitAppearance: 'none', appearance: 'none' }}
                 className="appearance-none bg-transparent font-extrabold text-sm text-slate-900 dark:text-white focus:outline-none cursor-pointer py-1.5 pl-4 pr-1"
               >
                 {HEBREW_MONTHS.map((m, idx) => (
@@ -208,6 +209,7 @@ export const MonthlyDashboard: React.FC = () => {
                 aria-label="בחר שנה"
                 value={year}
                 onChange={(e) => setSelectedMonth(getMonthKey(Number(e.target.value), monthIndex0))}
+                style={{ WebkitAppearance: 'none', appearance: 'none' }}
                 className="appearance-none bg-transparent font-bold text-sm text-slate-500 dark:text-slate-400 focus:outline-none cursor-pointer py-1.5 pl-4 pr-1 tabular-nums"
               >
                 {[2025, 2026, 2027, 2028, 2029, 2030].map((y) => (
@@ -435,11 +437,11 @@ export const MonthlyDashboard: React.FC = () => {
                   ? formatILS(0)
                   : formatILS(pace.dailyBudgetAllowance)}
             </div>
-            <div className="text-[10px] text-slate-400 tabular-nums truncate">
+            <div className="text-[10px] text-slate-400 tabular-nums leading-tight">
               {pace.status === 'past'
-                ? `סה"כ שוטף: ${formatILS(pace.variableSpent)}`
+                ? `שוטף: ${formatILS(pace.variableSpent)}`
                 : pace.budgetRemaining >= 0
-                  ? `יתרת תקציב: ${formatILS(pace.budgetRemaining)}`
+                  ? `יתרה: ${formatILS(pace.budgetRemaining)}`
                   : `חריגה: ${formatILS(Math.abs(pace.budgetRemaining))}`}
             </div>
           </div>
@@ -460,8 +462,8 @@ export const MonthlyDashboard: React.FC = () => {
                 ? formatILS(summary.netBalance / pace.daysInMonth, true)
                 : formatILS(Math.max(0, pace.dailyFreeNetAllowance))}
             </div>
-            <div className="text-[10px] text-slate-400 tabular-nums truncate">
-              קצב שוטף: {formatILS(pace.dailyVariablePace)} / יום
+            <div className="text-[10px] text-slate-400 tabular-nums leading-tight">
+              קצב: {formatILS(pace.dailyVariablePace)}/יום
             </div>
           </div>
 
@@ -479,8 +481,8 @@ export const MonthlyDashboard: React.FC = () => {
             >
               {formatILS(pace.projectedNetBalance, true)}
             </div>
-            <div className="text-[10px] text-slate-400 tabular-nums truncate">
-              צפי הוצאות: {formatILS(pace.projectedTotalExpenses)}
+            <div className="text-[10px] text-slate-400 tabular-nums leading-tight">
+              צפי: {formatILS(pace.projectedTotalExpenses)}
             </div>
           </div>
         </div>
