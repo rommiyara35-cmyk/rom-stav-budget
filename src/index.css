@@ -83,16 +83,37 @@
 
 /* Frosted glass sticky header / bottom navigation / sidebar */
 .fintech-glass {
-  background: rgba(248, 249, 250, 0.84);
-  backdrop-filter: blur(24px) saturate(180%);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  position: relative;
+  isolation: isolate;
+  background: rgba(248, 249, 250, 0.94);
   border-color: rgba(15, 23, 42, 0.06);
 }
 
+.fintech-glass::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  pointer-events: none;
+}
+
 .dark .fintech-glass {
-  background: rgba(11, 14, 20, 0.8);
-  backdrop-filter: blur(24px) saturate(160%);
-  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  background: rgba(11, 14, 20, 0.92);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+/* Dedicated razor-sharp iOS header (avoids WebKit sticky backdrop-filter text smear & iOS status-bar edge fade) */
+.fintech-header-ios {
+  background-color: #F8F9FA;
+  border-color: rgba(15, 23, 42, 0.06);
+  transform: translateZ(0);
+  -webkit-transform: translateZ(0);
+}
+
+.dark .fintech-header-ios {
+  background-color: #0B0E14;
   border-color: rgba(255, 255, 255, 0.08);
 }
 
@@ -136,7 +157,7 @@
 
 /* Safe area helpers */
 .safe-top {
-  padding-top: max(0.75rem, env(safe-area-inset-top));
+  padding-top: calc(env(safe-area-inset-top, 0px) + 0.85rem);
 }
 
 .safe-bottom {

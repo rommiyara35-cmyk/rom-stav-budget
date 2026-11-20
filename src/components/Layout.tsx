@@ -237,9 +237,9 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Sticky Mobile Frosted-Glass Header */}
-        <header className="lg:hidden sticky top-0 z-30 fintech-glass border-b safe-top">
-          <div className="px-4 pb-3 pt-1 flex items-center justify-between gap-2">
+        {/* Sticky Mobile Razor-Sharp iOS Header */}
+        <header className="lg:hidden sticky top-0 z-30 fintech-header-ios border-b safe-top">
+          <div className="px-4 pb-3 pt-1.5 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2.5 min-w-0">
               <div className="w-9 h-9 rounded-2xl bg-gradient-to-br from-emerald-500 via-teal-500 to-emerald-700 flex items-center justify-center text-white font-black text-base shadow-[0_6px_16px_-3px_rgba(16,185,129,0.45)] ring-1 ring-white/20 shrink-0">
                 ₪

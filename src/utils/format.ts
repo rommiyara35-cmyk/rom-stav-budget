@@ -58,6 +58,21 @@ export function getTodayISO(): string {
   return `${y}-${m}-${d}`;
 }
 
+export function addMonthsToISO(isoDate: string, monthsToAdd: number): string {
+  const [yStr, mStr, dStr] = isoDate.split('-');
+  const year = Number(yStr) || 2026;
+  const month0 = (Number(mStr) || 1) - 1;
+  const day = Number(dStr) || 1;
+
+  const targetMonthIndex = month0 + monthsToAdd;
+  const targetYear = year + Math.floor(targetMonthIndex / 12);
+  const normalizedMonth0 = ((targetMonthIndex % 12) + 12) % 12;
+  const maxDayInTarget = new Date(targetYear, normalizedMonth0 + 1, 0).getDate();
+  const clampedDay = Math.min(day, maxDayInTarget);
+
+  return `${targetYear}-${String(normalizedMonth0 + 1).padStart(2, '0')}-${String(clampedDay).padStart(2, '0')}`;
+}
+
 export function createId(prefix = 'id'): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 }

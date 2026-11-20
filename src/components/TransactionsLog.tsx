@@ -125,8 +125,15 @@ const SwipeableTxCard: React.FC<SwipeableTxCardProps> = ({ tx, onEdit, onDelete 
           </div>
 
           <div className="min-w-0">
-            <div className="font-bold text-sm text-slate-900 dark:text-white truncate">
-              {tx.description}
+            <div className="flex items-center gap-1.5">
+              <span className="font-bold text-sm text-slate-900 dark:text-white truncate">
+                {tx.description}
+              </span>
+              {tx.installmentTotal && tx.installmentTotal > 1 && (
+                <span className="shrink-0 px-1.5 py-0.5 rounded-md bg-emerald-500/12 text-emerald-700 dark:text-emerald-300 text-[10px] font-extrabold tabular-nums">
+                  {tx.installmentIndex}/{tx.installmentTotal}
+                </span>
+              )}
             </div>
             <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
               <span className="font-semibold text-slate-600 dark:text-slate-300">
@@ -452,7 +459,14 @@ export const TransactionsLog: React.FC = () => {
                         </span>
                       </td>
                       <td className="py-3 px-4 font-bold text-slate-900 dark:text-slate-100">
-                        {tx.description}
+                        <div className="flex items-center gap-2">
+                          <span>{tx.description}</span>
+                          {tx.installmentTotal && tx.installmentTotal > 1 && (
+                            <span className="px-1.5 py-0.5 rounded-md bg-emerald-500/12 text-emerald-700 dark:text-emerald-300 text-[10px] font-extrabold tabular-nums">
+                              תשלום {tx.installmentIndex}/{tx.installmentTotal}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="py-3 px-4 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
                         {tx.paymentMethod}

@@ -1,8 +1,11 @@
 import React, { useMemo, useState } from 'react';
 import {
   ArrowUpLeft,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Clock,
+  Gauge,
   Pencil,
   Sparkles,
   TrendingDown,
@@ -23,7 +26,7 @@ import {
 } from 'recharts';
 import { useBudget } from '../context/BudgetContext';
 import { HEBREW_MONTHS } from '../types/budget';
-import { computeMonthlySummary } from '../utils/calculations';
+import { computeMonthPaceForecast, computeMonthlySummary } from '../utils/calculations';
 import {
   formatILS,
   formatMonthLabel,
@@ -112,6 +115,8 @@ export const MonthlyDashboard: React.FC = () => {
     [data, selectedMonth]
   );
 
+  const pace = useMemo(() => computeMonthPaceForecast(summary), [summary]);
+
   const { year, monthIndex0 } = parseMonthKey(selectedMonth);
 
   const donutData = useMemo(
@@ -179,31 +184,40 @@ export const MonthlyDashboard: React.FC = () => {
             <ChevronRight className="w-5 h-5" />
           </button>
 
-          <div className="flex items-center gap-1.5 px-2">
-            <select
-              aria-label="בחר חודש"
-              value={monthIndex0}
-              onChange={(e) => setSelectedMonth(getMonthKey(year, Number(e.target.value)))}
-              className="bg-transparent font-extrabold text-sm text-slate-900 dark:text-white focus:outline-none cursor-pointer py-1.5"
-            >
-              {HEBREW_MONTHS.map((m, idx) => (
-                <option key={m} value={idx} className="bg-white dark:bg-[#131823]">
-                  {m}
-                </option>
-              ))}
-            </select>
-            <select
-              aria-label="בחר שנה"
-              value={year}
-              onChange={(e) => setSelectedMonth(getMonthKey(Number(e.target.value), monthIndex0))}
-              className="bg-transparent font-bold text-sm text-slate-500 dark:text-slate-400 focus:outline-none cursor-pointer py-1.5 tabular-nums"
-            >
-              {[2025, 2026, 2027, 2028, 2029, 2030].map((y) => (
-                <option key={y} value={y} className="bg-white dark:bg-[#131823]">
-                  {y}
-                </option>
-              ))}
-            </select>
+          <div className="flex items-center gap-2 px-2">
+            <div className="relative inline-flex items-center">
+              <select
+                aria-label="בחר חודש"
+                value={monthIndex0}
+                onChange={(e) => setSelectedMonth(getMonthKey(year, Number(e.target.value)))}
+                className="appearance-none bg-transparent font-extrabold text-sm text-slate-900 dark:text-white focus:outline-none cursor-pointer py-1.5 pl-4 pr-1"
+              >
+                {HEBREW_MONTHS.map((m, idx) => (
+                  <option key={m} value={idx} className="bg-white dark:bg-[#131823]">
+                    {m}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="w-3.5 h-3.5 text-slate-400 pointer-events-none absolute left-0" />
+            </div>
+
+            <span className="text-slate-300 dark:text-white/15">•</span>
+
+            <div className="relative inline-flex items-center">
+              <select
+                aria-label="בחר שנה"
+                value={year}
+                onChange={(e) => setSelectedMonth(getMonthKey(Number(e.target.value), monthIndex0))}
+                className="appearance-none bg-transparent font-bold text-sm text-slate-500 dark:text-slate-400 focus:outline-none cursor-pointer py-1.5 pl-4 pr-1 tabular-nums"
+              >
+                {[2025, 2026, 2027, 2028, 2029, 2030].map((y) => (
+                  <option key={y} value={y} className="bg-white dark:bg-[#131823]">
+                    {y}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="w-3.5 h-3.5 text-slate-400 pointer-events-none absolute left-0" />
+            </div>
           </div>
 
           <button
@@ -345,6 +359,132 @@ export const MonthlyDashboard: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Daily Budget Pace & End-of-Month Forecast Widget */}
+      <section className="fintech-card rounded-[24px] p-4 sm:p-5 space-y-3.5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <span className="w-8 h-8 rounded-xl bg-emerald-500/12 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
+              <Gauge className="w-4 h-4" />
+            </span>
+            <div>
+              <h3 className="text-sm font-extrabold tracking-tight">
+                קצב הוצאות ותחזית סוף חודש
+              </h3>
+              <p className="text-[11px] text-slate-400 dark:text-slate-500 tabular-nums">
+                {pace.status === 'current'
+                  ? `יום ${pace.daysElapsed} מתוך ${pace.daysInMonth} • נותרו ${pace.daysRemaining} ימים (כולל היום)`
+                  : pace.status === 'past'
+                    ? `חודש שהסתיים (${pace.daysInMonth} ימים)`
+                    : `חודש עתידי (${pace.daysInMonth} ימים)`}
+              </p>
+            </div>
+          </div>
+
+          {pace.status === 'current' && (
+            <span
+              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold ${
+                pace.projectedNetBalance >= 0
+                  ? 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-300'
+                  : 'bg-rose-500/12 text-[#E11D48] dark:text-[#FB7185]'
+              }`}
+            >
+              <Clock className="w-3 h-3" />
+              {pace.isOnTrackBudget
+                ? 'בקצב תקציבי מצוין'
+                : pace.projectedNetBalance >= 0
+                  ? 'מעל יעד התקציב • יתרה חיובית'
+                  : 'קצב מוביל לגירעון'}
+            </span>
+          )}
+        </div>
+
+        {/* Time Progress Hairline */}
+        {pace.status === 'current' && (
+          <div className="space-y-1">
+            <div className="h-1.5 rounded-full bg-slate-200/80 dark:bg-white/[0.07] overflow-hidden">
+              <div
+                className="h-full rounded-full bg-gradient-to-l from-sky-400 to-emerald-400 progress-fill"
+                style={{ width: `${Math.round(pace.timeProgressRatio * 100)}%` }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* 3 Forecast Metrics */}
+        <div className="grid grid-cols-3 gap-2.5">
+          {/* Daily Budget Allowance */}
+          <div className="rounded-2xl fintech-well p-3 space-y-0.5">
+            <div className="text-[10px] font-bold tracking-wide text-slate-400">
+              {pace.status === 'past' ? 'ממוצע שוטף / יום' : 'מותר ליום (תקציב)'}
+            </div>
+            <div
+              className={`text-sm sm:text-base font-black tabular-nums whitespace-nowrap ${
+                pace.status === 'past'
+                  ? 'text-slate-900 dark:text-white'
+                  : pace.budgetRemaining < 0
+                    ? 'text-[#F43F5E] dark:text-[#FB7185]'
+                    : pace.dailyBudgetAllowance < 50
+                      ? 'text-amber-600 dark:text-amber-400'
+                      : 'text-emerald-600 dark:text-emerald-400'
+              }`}
+            >
+              {pace.status === 'past'
+                ? formatILS(pace.dailyVariablePace)
+                : pace.budgetRemaining < 0
+                  ? formatILS(0)
+                  : formatILS(pace.dailyBudgetAllowance)}
+            </div>
+            <div className="text-[10px] text-slate-400 tabular-nums truncate">
+              {pace.status === 'past'
+                ? `סה"כ שוטף: ${formatILS(pace.variableSpent)}`
+                : pace.budgetRemaining >= 0
+                  ? `יתרת תקציב: ${formatILS(pace.budgetRemaining)}`
+                  : `חריגה: ${formatILS(Math.abs(pace.budgetRemaining))}`}
+            </div>
+          </div>
+
+          {/* Daily Free Net Allowance */}
+          <div className="rounded-2xl fintech-well p-3 space-y-0.5">
+            <div className="text-[10px] font-bold tracking-wide text-slate-400">
+              {pace.status === 'past' ? 'יתרה יומית נטו' : 'פנוי ליום (נטו)'}
+            </div>
+            <div
+              className={`text-sm sm:text-base font-black tabular-nums whitespace-nowrap ${
+                summary.netBalance >= 0
+                  ? 'text-emerald-600 dark:text-emerald-400'
+                  : 'text-[#F43F5E] dark:text-[#FB7185]'
+              }`}
+            >
+              {pace.status === 'past'
+                ? formatILS(summary.netBalance / pace.daysInMonth, true)
+                : formatILS(Math.max(0, pace.dailyFreeNetAllowance))}
+            </div>
+            <div className="text-[10px] text-slate-400 tabular-nums truncate">
+              קצב שוטף: {formatILS(pace.dailyVariablePace)} / יום
+            </div>
+          </div>
+
+          {/* Projected End-of-Month Net Balance */}
+          <div className="rounded-2xl fintech-well p-3 space-y-0.5">
+            <div className="text-[10px] font-bold tracking-wide text-slate-400">
+              {pace.status === 'past' ? 'יתרה סופית' : 'תחזית סוף חודש'}
+            </div>
+            <div
+              className={`text-sm sm:text-base font-black tabular-nums whitespace-nowrap ${
+                pace.projectedNetBalance >= 0
+                  ? 'text-emerald-600 dark:text-emerald-400'
+                  : 'text-[#F43F5E] dark:text-[#FB7185]'
+              }`}
+            >
+              {formatILS(pace.projectedNetBalance, true)}
+            </div>
+            <div className="text-[10px] text-slate-400 tabular-nums truncate">
+              צפי הוצאות: {formatILS(pace.projectedTotalExpenses)}
+            </div>
+          </div>
+        </div>
+      </section>
 
       {/* Income Section */}
       <section className="fintech-card rounded-[26px] overflow-hidden">

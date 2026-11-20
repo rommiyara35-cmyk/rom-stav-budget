@@ -76,8 +76,10 @@ interface BudgetContextValue {
   // Data mutations
   updateCategoryTarget: (category: string, target: number) => void;
   addTransaction: (tx: Omit<Transaction, 'id' | 'createdAt'>) => void;
+  addTransactionsBatch: (txs: Array<Omit<Transaction, 'id' | 'createdAt'>>, toastText?: string) => void;
   updateTransaction: (tx: Transaction) => void;
   deleteTransaction: (id: string) => void;
+  deleteInstallmentGroup: (groupId: string) => void;
 
   addFixedExpense: (item: Omit<FixedExpenseItem, 'id'>) => void;
   updateFixedExpense: (item: FixedExpenseItem) => void;
@@ -333,6 +335,23 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     [persistUpdate, notify]
   );
 
+  const addTransactionsBatch = useCallback(
+    (txs: Array<Omit<Transaction, 'id' | 'createdAt'>>, toastText?: string) => {
+      const now = Date.now();
+      const created: Transaction[] = txs.map((tx, idx) => ({
+        ...tx,
+        id: createId(`tx-${idx + 1}`),
+        createdAt: now + idx,
+      }));
+      persistUpdate((prev) => ({
+        ...prev,
+        transactions: [...created, ...prev.transactions],
+      }));
+      notify(toastText ?? `נוספו ${created.length} תשלומים בהצלחה`);
+    },
+    [persistUpdate, notify]
+  );
+
   const updateTransaction = useCallback(
     (updated: Transaction) => {
       persistUpdate((prev) => ({
@@ -351,6 +370,17 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         transactions: prev.transactions.filter((t) => t.id !== id),
       }));
       notify('התנועה נמחקה', 'info');
+    },
+    [persistUpdate, notify]
+  );
+
+  const deleteInstallmentGroup = useCallback(
+    (groupId: string) => {
+      persistUpdate((prev) => ({
+        ...prev,
+        transactions: prev.transactions.filter((t) => t.installmentGroupId !== groupId),
+      }));
+      notify('כל סדרת התשלומים נמחקה', 'info');
     },
     [persistUpdate, notify]
   );
@@ -457,8 +487,10 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       copyShareLink,
       updateCategoryTarget,
       addTransaction,
+      addTransactionsBatch,
       updateTransaction,
       deleteTransaction,
+      deleteInstallmentGroup,
       addFixedExpense,
       updateFixedExpense,
       deleteFixedExpense,
@@ -494,8 +526,10 @@ export const BudgetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       copyShareLink,
       updateCategoryTarget,
       addTransaction,
+      addTransactionsBatch,
       updateTransaction,
       deleteTransaction,
+      deleteInstallmentGroup,
       addFixedExpense,
       updateFixedExpense,
       deleteFixedExpense,

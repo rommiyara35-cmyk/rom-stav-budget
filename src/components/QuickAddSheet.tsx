@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Calendar, CreditCard, Trash2, X } from 'lucide-react';
+import { Calendar, CreditCard, Layers, Trash2, X } from 'lucide-react';
 import { useBudget } from '../context/BudgetContext';
 import {
   CategoryName,
@@ -11,7 +11,15 @@ import {
   USERS,
   UserName,
 } from '../types/budget';
-import { getTodayISO } from '../utils/format';
+import {
+  addMonthsToISO,
+  createId,
+  formatILS,
+  formatMonthLabel,
+  getTodayISO,
+} from '../utils/format';
+
+const QUICK_INSTALLMENTS = [1, 2, 3, 6, 12] as const;
 
 export const QuickAddSheet: React.FC = () => {
   const {
@@ -20,8 +28,10 @@ export const QuickAddSheet: React.FC = () => {
     closeQuickAdd,
     activeUser,
     addTransaction,
+    addTransactionsBatch,
     updateTransaction,
     deleteTransaction,
+    deleteInstallmentGroup,
   } = useBudget();
 
   const [type, setType] = useState<TransactionType>('הוצאה');
@@ -31,6 +41,7 @@ export const QuickAddSheet: React.FC = () => {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('אשראי');
   const [date, setDate] = useState(getTodayISO());
   const [loggedBy, setLoggedBy] = useState<UserName>(activeUser);
+  const [installments, setInstallments] = useState<number>(1);
 
   const amountInputRef = useRef<HTMLInputElement>(null);
 
@@ -45,6 +56,7 @@ export const QuickAddSheet: React.FC = () => {
       setPaymentMethod(editingTransaction.paymentMethod);
       setDate(editingTransaction.date);
       setLoggedBy(editingTransaction.loggedBy);
+      setInstallments(editingTransaction.installmentTotal ?? 1);
     } else {
       setType('הוצאה');
       setAmount('');
@@ -53,6 +65,7 @@ export const QuickAddSheet: React.FC = () => {
       setPaymentMethod('אשראי');
       setDate(getTodayISO());
       setLoggedBy(activeUser);
+      setInstallments(1);
       window.setTimeout(() => {
         amountInputRef.current?.focus();
       }, 120);
@@ -62,9 +75,13 @@ export const QuickAddSheet: React.FC = () => {
   if (!isQuickAddOpen) return null;
 
   const categories = type === 'הוצאה' ? EXPENSE_CATEGORIES : INCOME_CATEGORIES;
+  const parsedAmount = parseFloat(amount.replace(/,/g, '.'));
+  const validAmount = Number.isFinite(parsedAmount) && parsedAmount > 0 ? parsedAmount : 0;
+  const showInstallments = !editingTransaction && type === 'הוצאה';
 
   const handleTypeSwitch = (nextType: TransactionType) => {
     setType(nextType);
+    if (nextType === 'הכנסה') setInstallments(1);
     const valid = nextType === 'הוצאה' ? EXPENSE_CATEGORIES : INCOME_CATEGORIES;
     if (!valid.some((c) => c.name === category)) {
       setCategory(valid[0].name);
@@ -73,8 +90,7 @@ export const QuickAddSheet: React.FC = () => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const numericAmount = parseFloat(amount.replace(/,/g, '.'));
-    if (!Number.isFinite(numericAmount) || numericAmount <= 0) return;
+    if (validAmount <= 0) return;
 
     const cleanDesc = description.trim() || category;
 
@@ -82,17 +98,51 @@ export const QuickAddSheet: React.FC = () => {
       updateTransaction({
         ...editingTransaction,
         type,
-        amount: Math.round(numericAmount * 100) / 100,
+        amount: Math.round(validAmount * 100) / 100,
         category,
         description: cleanDesc,
         paymentMethod,
         date,
         loggedBy,
       });
+      closeQuickAdd();
+      return;
+    }
+
+    const count = showInstallments ? Math.max(1, Math.min(24, Math.round(installments))) : 1;
+
+    if (count > 1) {
+      const groupId = createId('inst');
+      const totalCents = Math.round(validAmount * 100);
+      const baseCents = Math.floor(totalCents / count);
+      const remainderCents = totalCents - baseCents * count;
+
+      const batch = Array.from({ length: count }, (_, idx) => {
+        const cents = idx === 0 ? baseCents + remainderCents : baseCents;
+        const itemAmount = Math.round(cents) / 100;
+        const itemDate = addMonthsToISO(date, idx);
+        return {
+          type,
+          amount: itemAmount,
+          category,
+          description: `${cleanDesc} (${idx + 1}/${count})`,
+          paymentMethod,
+          date: itemDate,
+          loggedBy,
+          installmentGroupId: groupId,
+          installmentIndex: idx + 1,
+          installmentTotal: count,
+        };
+      });
+
+      addTransactionsBatch(
+        batch,
+        `נפרסו ${count} תשלומים של ${formatILS(validAmount / count)} (סה"כ ${formatILS(validAmount)})`
+      );
     } else {
       addTransaction({
         type,
-        amount: Math.round(numericAmount * 100) / 100,
+        amount: Math.round(validAmount * 100) / 100,
         category,
         description: cleanDesc,
         paymentMethod,
@@ -100,12 +150,19 @@ export const QuickAddSheet: React.FC = () => {
         loggedBy,
       });
     }
+
     closeQuickAdd();
   };
 
   const handleDelete = () => {
     if (!editingTransaction) return;
     deleteTransaction(editingTransaction.id);
+    closeQuickAdd();
+  };
+
+  const handleDeleteAllInstallments = () => {
+    if (!editingTransaction?.installmentGroupId) return;
+    deleteInstallmentGroup(editingTransaction.installmentGroupId);
     closeQuickAdd();
   };
 
@@ -119,7 +176,7 @@ export const QuickAddSheet: React.FC = () => {
         onClick={(e) => e.stopPropagation()}
       >
         {/* iOS Drag Handle & Header */}
-        <div className="sticky top-0 z-10 bg-white/90 dark:bg-[#10151F]/90 backdrop-blur-xl pt-2.5 pb-3.5 px-5 border-b border-hairline">
+        <div className="sticky top-0 z-10 bg-white/95 dark:bg-[#10151F]/95 backdrop-blur-xl pt-2.5 pb-3.5 px-5 border-b border-hairline">
           <div className="w-10 h-1 rounded-full bg-slate-300 dark:bg-white/20 mx-auto mb-3 sm:hidden" />
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-black tracking-tight text-slate-900 dark:text-white">
@@ -163,13 +220,15 @@ export const QuickAddSheet: React.FC = () => {
             </button>
           </div>
 
-          {/* Apple Pay / Revolut Hero Amount Well */}
+          {/* Hero Amount Well */}
           <div className="rounded-3xl fintech-well p-5 text-center">
             <label
               htmlFor="quick-amount"
               className="block text-[11px] font-bold tracking-wide text-slate-500 dark:text-slate-400 mb-1"
             >
-              סכום בשקלים
+              {showInstallments && installments > 1
+                ? 'סכום כולל של העסקה (₪)'
+                : 'סכום בשקלים'}
             </label>
             <div className="flex items-center justify-center gap-2" dir="ltr">
               <span className="text-2xl font-bold text-slate-400">₪</span>
@@ -266,6 +325,71 @@ export const QuickAddSheet: React.FC = () => {
             </div>
           </div>
 
+          {/* Credit Card Installments (פריסת תשלומים) */}
+          {showInstallments && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="flex items-center gap-1.5 text-[11px] font-bold tracking-wide text-slate-500 dark:text-slate-400">
+                  <Layers className="w-3.5 h-3.5 text-emerald-500" />
+                  פריסת תשלומים
+                </label>
+                {installments > 1 && (
+                  <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">
+                    {installments} חודשים קדימה
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                {QUICK_INSTALLMENTS.map((n) => {
+                  const selected = installments === n;
+                  return (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => setInstallments(n)}
+                      className={`pressable flex-1 min-h-[40px] rounded-xl text-xs font-extrabold tabular-nums ${
+                        selected
+                          ? 'bg-emerald-500 text-white dark:text-slate-950 shadow-xs'
+                          : 'fintech-well text-slate-600 dark:text-slate-300'
+                      }`}
+                    >
+                      {n === 1 ? 'רגיל' : `×${n}`}
+                    </button>
+                  );
+                })}
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  max={24}
+                  aria-label="מספר תשלומים מותאם"
+                  value={installments}
+                  onChange={(e) => {
+                    const v = parseInt(e.target.value, 10);
+                    setInstallments(Number.isFinite(v) ? Math.max(1, Math.min(24, v)) : 1);
+                  }}
+                  dir="ltr"
+                  className="w-14 min-h-[40px] px-2 rounded-xl fintech-well text-center text-xs font-extrabold tabular-nums focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                />
+              </div>
+
+              {installments > 1 && validAmount > 0 && (
+                <div className="px-3.5 py-2.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-xs font-semibold text-emerald-700 dark:text-emerald-300 flex items-center justify-between gap-2 tabular-nums">
+                  <span>
+                    {installments} תשלומים של{' '}
+                    <strong className="font-black">
+                      {formatILS(validAmount / installments)}
+                    </strong>
+                  </span>
+                  <span className="text-[11px] opacity-80">
+                    עד {formatMonthLabel(addMonthsToISO(date, installments - 1).slice(0, 7))}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Date & Logged By Row */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
@@ -309,6 +433,18 @@ export const QuickAddSheet: React.FC = () => {
             </div>
           </div>
 
+          {/* Delete whole installment series shortcut when editing an installment */}
+          {editingTransaction?.installmentGroupId && (
+            <button
+              type="button"
+              onClick={handleDeleteAllInstallments}
+              className="pressable w-full min-h-[42px] rounded-2xl bg-rose-500/10 border border-rose-500/20 text-[#F43F5E] dark:text-[#FB7185] text-xs font-bold flex items-center justify-center gap-2"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              מחק את כל סדרת התשלומים ({editingTransaction.installmentTotal} תשלומים)
+            </button>
+          )}
+
           {/* Submit / Delete Actions */}
           <div className="flex items-center gap-2.5 pt-1">
             {editingTransaction && (
@@ -331,9 +467,11 @@ export const QuickAddSheet: React.FC = () => {
             >
               {editingTransaction
                 ? 'שמור שינויים'
-                : type === 'הכנסה'
-                  ? 'הוסף הכנסה'
-                  : 'הוסף הוצאה'}
+                : showInstallments && installments > 1
+                  ? `פרוס ל-${installments} תשלומים`
+                  : type === 'הכנסה'
+                    ? 'הוסף הכנסה'
+                    : 'הוסף הוצאה'}
             </button>
           </div>
         </form>

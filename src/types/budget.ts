@@ -53,6 +53,9 @@ export interface Transaction {
   paymentMethod: PaymentMethod;
   loggedBy: UserName;
   createdAt: number;
+  installmentGroupId?: string;
+  installmentIndex?: number;
+  installmentTotal?: number;
 }
 
 export interface FixedExpenseItem {

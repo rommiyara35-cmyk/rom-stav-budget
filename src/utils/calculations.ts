@@ -6,7 +6,7 @@ import {
   HEBREW_MONTHS,
   INCOME_CATEGORIES,
 } from '../types/budget';
-import { getMonthKey } from './format';
+import { getMonthKey, parseMonthKey } from './format';
 
 export interface CategorySummaryRow {
   meta: CategoryMeta;
@@ -225,5 +225,92 @@ export function computeAnnualSummary(data: BudgetData, year: number): AnnualSumm
     avgIncome: activeMonthCount > 0 ? totalIncome / divisor : 0,
     avgExpenses: activeMonthCount > 0 ? totalExpenses / divisor : 0,
     avgNet: activeMonthCount > 0 ? totalNet / divisor : 0,
+  };
+}
+
+export interface MonthPaceForecast {
+  status: 'current' | 'past' | 'future';
+  daysInMonth: number;
+  daysElapsed: number;
+  daysRemaining: number; // inclusive of today for current month
+  timeProgressRatio: number; // 0..1
+  budgetRemaining: number; // totalExpenseTarget - totalExpenseActual
+  dailyBudgetAllowance: number; // remaining budget / daysRemaining
+  dailyFreeNetAllowance: number; // netBalance / daysRemaining
+  variableSpent: number;
+  dailyVariablePace: number;
+  projectedTotalExpenses: number;
+  projectedNetBalance: number;
+  isOnTrackBudget: boolean;
+}
+
+export function computeMonthPaceForecast(
+  summary: MonthlySummary,
+  now: Date = new Date()
+): MonthPaceForecast {
+  const { year, monthIndex0 } = parseMonthKey(summary.monthKey);
+  const daysInMonth = new Date(year, monthIndex0 + 1, 0).getDate();
+
+  const currentYear = now.getFullYear();
+  const currentMonth0 = now.getMonth();
+  const todayDay = Math.min(daysInMonth, now.getDate());
+
+  let status: MonthPaceForecast['status'] = 'current';
+  if (year < currentYear || (year === currentYear && monthIndex0 < currentMonth0)) {
+    status = 'past';
+  } else if (year > currentYear || (year === currentYear && monthIndex0 > currentMonth0)) {
+    status = 'future';
+  }
+
+  const daysElapsed = status === 'past' ? daysInMonth : status === 'future' ? 0 : todayDay;
+  const daysRemaining =
+    status === 'past' ? 0 : status === 'future' ? daysInMonth : Math.max(1, daysInMonth - todayDay + 1);
+  const timeProgressRatio = daysInMonth > 0 ? daysElapsed / daysInMonth : 0;
+
+  const fixedActual = summary.expenseRows
+    .filter(
+      (r) =>
+        r.meta.name === 'הוצאות קבועות רום' || r.meta.name === 'הוצאות קבועות סתיו'
+    )
+    .reduce((sum, r) => sum + r.actual, 0);
+
+  const variableSpent = Math.max(0, summary.totalExpenseActual - fixedActual);
+  const budgetRemaining = summary.totalExpenseTarget - summary.totalExpenseActual;
+
+  const dailyBudgetAllowance = daysRemaining > 0 ? budgetRemaining / daysRemaining : 0;
+  const dailyFreeNetAllowance = daysRemaining > 0 ? summary.netBalance / daysRemaining : 0;
+
+  const dailyVariablePace = daysElapsed > 0 ? variableSpent / daysElapsed : 0;
+  const projectedVariable =
+    status === 'current'
+      ? dailyVariablePace * daysInMonth
+      : status === 'past'
+        ? variableSpent
+        : Math.max(0, summary.totalExpenseTarget - fixedActual);
+
+  const projectedTotalExpenses = fixedActual + projectedVariable;
+  const projectedNetBalance =
+    (summary.totalIncomeActual > 0 ? summary.totalIncomeActual : summary.totalIncomeTarget) -
+    projectedTotalExpenses;
+
+  const isOnTrackBudget =
+    summary.totalExpenseTarget > 0
+      ? projectedTotalExpenses <= summary.totalExpenseTarget
+      : projectedNetBalance >= 0;
+
+  return {
+    status,
+    daysInMonth,
+    daysElapsed,
+    daysRemaining,
+    timeProgressRatio,
+    budgetRemaining,
+    dailyBudgetAllowance,
+    dailyFreeNetAllowance,
+    variableSpent,
+    dailyVariablePace,
+    projectedTotalExpenses,
+    projectedNetBalance,
+    isOnTrackBudget,
   };
 }
